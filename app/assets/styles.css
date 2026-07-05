@@ -193,6 +193,25 @@ nav.tabs button.active{color:var(--jade)}
 .rung.cur{background:var(--paper-hi);outline:2px solid var(--jade)}
 .rung.peak::after{content:"峰";color:var(--bronze);font-size:13px;margin-left:4px}
 
+/* enso ring around the date once all practices are complete */
+.datechip{position:relative}
+.datechip.enso::after{content:"";position:absolute;inset:-4px -10px;border:1.5px solid var(--jade);
+  border-radius:50%;opacity:0;pointer-events:none;
+  -webkit-mask:conic-gradient(from 40deg,#000 0 82%,transparent 86% 100%);
+  mask:conic-gradient(from 40deg,#000 0 82%,transparent 86% 100%);
+  animation:ensoIn var(--t-page) var(--ease) forwards}
+@keyframes ensoIn{to{opacity:.55}}
+
+/* cinnabar seal pressed on a true 1RM PR — 380ms scale 1.06→1 per spec, once */
+.pr-seal{position:fixed;top:34%;left:50%;z-index:50;width:84px;height:84px;border-radius:8px;
+  background:var(--cinnabar);display:flex;align-items:center;justify-content:center;
+  pointer-events:none;box-shadow:0 6px 18px rgba(32,33,28,.25);
+  animation:sealpress 380ms var(--ease) forwards,sealfade 600ms 1200ms var(--ease) forwards}
+.pr-seal .cjk{font-family:"Songti SC","Cormorant Garamond",serif;font-size:44px;color:var(--paper-hi)}
+@keyframes sealpress{from{transform:translate(-50%,-50%) scale(1.06);opacity:0}
+  35%{opacity:1}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
+@keyframes sealfade{to{opacity:0}}
+
 /* empty + toast */
 .empty{color:var(--ink-faint);font-style:italic;padding:28px 0;text-align:center}
 .toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%) translateY(8px);

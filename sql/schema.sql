@@ -22,8 +22,11 @@ create table if not exists settings (
       {"key":"puzzle","label":"5 minutes of puzzles"},
       {"key":"mandarin","label":"Spoke Mandarin 5 min"},
       {"key":"social","label":"Talked to one person"}]'::jsonb,
+  deload_weeks  jsonb not null default '[]'::jsonb,   -- absolute week numbers tagged as deload
   updated_at    timestamptz not null default now()
 );
+-- existing databases:
+-- alter table settings add column if not exists deload_weeks jsonb not null default '[]'::jsonb;
 
 -- ---------- daily_logs (one row per calendar day) ----------
 create table if not exists daily_logs (

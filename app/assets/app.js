@@ -96,6 +96,7 @@ async function initSupabase(){
 let settings = LS.get("settings", {
   program_start: todayISO(),
   bodyweight_lb: null,
+  deload_weeks: [],   // absolute week numbers tagged as deload (excluded from trends)
   habits: [
     {key:"cal",label:"Ate 2600 calories"},{key:"protein",label:"170g protein"},
     {key:"sleep",label:"Slept 8 hours"},{key:"creatine",label:"Took creatine"},
@@ -169,8 +170,10 @@ async function updateRank(exKey, est1rm, date){
   if(!bw) return false;
   const idx = tierIndex(lift, est1rm, bw), ratio = est1rm/bw;
   let rank = LS.get("rank:"+lift, {current_tier:0,peak_tier:0});
+  const prevPeak1rm = rank.peak_1rm || 0;
   rank.current_tier = idx; rank.current_1rm = est1rm; rank.current_ratio = ratio; // LIVE — can drop
   if(idx >= rank.peak_tier){ rank.peak_tier=idx; rank.peak_1rm=est1rm; rank.peak_date=date; }
+  if(prevPeak1rm && est1rm > prevPeak1rm) sealPress(); // true 1RM PR
   LS.set("rank:"+lift, rank);
   if(sb&&user){ try{
     await sb.from("ranks").upsert({user_id:user.id,exercise:lift,...rank},{onConflict:"user_id,exercise"});
@@ -205,7 +208,8 @@ async function renderToday(){
   const {day, work} = await loadDay(viewDate);
   const workBy = Object.fromEntries(work.map(w=>[w.exercise,w]));
 
-  let html = mast(`Week ${wi.weekOrdinal} · ${wi.bracket}`) ;
+  const isDeload=(settings.deload_weeks||[]).includes(wi.weekNum);
+  let html = mast(`Week ${wi.weekOrdinal} · ${wi.bracket}${isDeload?" · 休 deload":""}`);
   const isToday = viewDate===todayISO();
   const dateLabel = isToday ? "today"
     : new Date(viewDate+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
@@ -355,7 +359,15 @@ function renderHabits(day){
     cur[k]=!cur[k]; row.classList.toggle("done",cur[k]);
     row.querySelector(".check").innerHTML=checkSVG(cur[k]);
     saveDay(viewDate,{habits_done:cur});
+    updateEnso(cur);
   }));
+  updateEnso(done);
+}
+// enso ring around the day once every practice is complete
+function updateEnso(habitsDone){
+  const chip=document.getElementById("dateChip"); if(!chip) return;
+  const all=settings.habits.length>0 && settings.habits.every(h=>habitsDone?.[h.key]);
+  chip.classList.toggle("enso", all);
 }
 function checkSVG(on){
   return `<svg viewBox="0 0 30 30" width="30" height="30">
@@ -539,22 +551,28 @@ async function renderAnalytics(){
       logs.push(...LS.get("work:"+todayISO(d),[])); }
   }
 
-  // rank movement
+  // heavy-set history per exercise, deload weeks excluded from all trends
+  const dlSet=new Set(settings.deload_weeks||[]);
+  const byEx={};
+  logs.filter(l=>l.est_1rm && !dlSet.has(weekInfo(settings.program_start,new Date(l.log_date+"T12:00:00")).weekNum))
+    .forEach(l=>{(byEx[l.exercise]=byEx[l.exercise]||[]).push(l);});
+  for(const arr of Object.values(byEx)) arr.sort((a,b)=>a.log_date.localeCompare(b.log_date));
+
+  // rank movement (with est-1RM sparkline once there are ≥2 heavy sessions)
   html+=`<h2 class="sec">Ranks</h2>`;
   for(const [key,label] of Object.entries(RANK_LIFTS)){
     const r=LS.get("rank:"+key,{current_tier:0,peak_tier:0});
     const cls = r.current_tier>=r.peak_tier?"up":(r.current_tier<r.peak_tier?"down":"flat");
     html+=`<div class="stat"><span class="k">${label}</span>
       <span class="v"><span class="pill ${cls}">${TIERS[r.current_tier]}</span></span></div>`;
+    html+=sparkline((byEx[key]||[]).map(l=>l.est_1rm));
   }
 
   // progression vs stalling: compare heavy-set est_1rm over time per exercise
   html+=`<h2 class="sec" style="margin-top:18px">Strength trend</h2>`;
-  const byEx={};
-  logs.filter(l=>l.est_1rm).forEach(l=>{(byEx[l.exercise]=byEx[l.exercise]||[]).push(l);});
+  if(dlSet.size) html+=`<p class="lbl" style="margin:0 0 6px">Deload weeks excluded.</p>`;
   const moves=[];
   for(const [ex,arr] of Object.entries(byEx)){
-    arr.sort((a,b)=>a.log_date.localeCompare(b.log_date));
     if(arr.length<2) continue;
     const first=arr[0].est_1rm, last=arr[arr.length-1].est_1rm;
     const delta=last-first; moves.push({ex,delta,pct:delta/first,lastDate:arr[arr.length-1].log_date});
@@ -608,6 +626,18 @@ async function renderAnalytics(){
   }));
 }
 
+// inline est-1RM sparkline (jade, hairline) — returns "" under 2 points
+function sparkline(vals){
+  if(vals.length<2) return "";
+  const w=340,h=44,pad=4;
+  const min=Math.min(...vals),max=Math.max(...vals),span=(max-min)||1;
+  const step=(w-2*pad)/(vals.length-1);
+  const pts=vals.map((v,i)=>`${(pad+i*step).toFixed(1)},${(h-pad-((v-min)/span)*(h-2*pad)).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="var(--jade)" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" opacity=".75"/></svg>`;
+}
+
 function PROGRAM_NAME(key){
   for(const day of Object.values(PROGRAM)){ const f=day.find(e=>e.key===key); if(f) return f.name; }
   return null;
@@ -632,6 +662,14 @@ function pickWorst(moves,pains,adh,habits){
 }
 
 async function syncSettings(){ if(sb&&user) try{ await sb.from("settings").upsert({user_id:user.id,...settings},{onConflict:"user_id"}); }catch(e){} }
+
+// cinnabar seal pressed onto the page for a true 1RM PR (380ms per spec)
+function sealPress(){
+  const el=document.createElement("div"); el.className="pr-seal";
+  el.innerHTML=`<span class="cjk">峰</span>`;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 2000);
+}
 
 // ---------- toast ----------
 let toastT;
@@ -663,12 +701,18 @@ async function go(tab){ activeTab=tab; mountTabs();
 
 function renderSettings(){
   let html=mast("Settings · 設");
+  const wkNow=weekInfo(settings.program_start).weekNum;
+  const isDeload=(settings.deload_weeks||[]).includes(wkNow);
   html+=`<div class="eyebrow">Program</div>
     <div class="daybar"><span class="lbl">start date</span>
-      <input type="date" id="pstart" value="${settings.program_start}"></div>`;
+      <input type="date" id="pstart" value="${settings.program_start}"></div>
+    <div class="daybar"><span class="lbl">deload this week</span>
+      <span class="dot ${isDeload?'on':''}" id="deloadDot" title="tag this week as deload"></span>
+      <span class="lbl" style="font-style:italic">excluded from strength trends</span></div>`;
   html+=brush()+`<div class="eyebrow">Daily practices (editable)</div>`;
   html+=settings.habits.map((h,i)=>`<div class="daybar">
-    <input class="hlabel" data-i="${i}" value="${h.label}" style="width:100%;font-family:inherit">
+    <input class="hlabel" data-i="${i}" value="${h.label}" style="flex:1;font-family:inherit">
+    <button class="ghost hdel" data-i="${i}" aria-label="remove practice">✕</button>
     </div>`).join("");
   html+=`<div style="margin-top:10px"><button class="ghost" id="addHabit">Add practice</button></div>`;
   html+=brush()+`<div class="eyebrow">Backup</div>
@@ -679,8 +723,21 @@ function renderSettings(){
   html+=`<p class="lbl" style="margin-top:18px">${user?`Signed in as ${user.email}. Data syncs to your private Supabase.`:`Offline mode — data is on this device. Add Supabase keys to sync.`}</p>`;
   app.innerHTML=html;
   document.getElementById("pstart").addEventListener("change",e=>{settings.program_start=e.target.value;LS.set("settings",settings);syncSettings();});
+  document.getElementById("deloadDot").addEventListener("click",e=>{
+    const wk=weekInfo(settings.program_start).weekNum;
+    const set=new Set(settings.deload_weeks||[]);
+    set.has(wk) ? set.delete(wk) : set.add(wk);
+    settings.deload_weeks=[...set].sort((a,b)=>a-b);
+    LS.set("settings",settings); syncSettings();
+    e.target.classList.toggle("on");
+  });
   app.querySelectorAll(".hlabel").forEach(inp=>inp.addEventListener("change",()=>{
     settings.habits[+inp.dataset.i].label=inp.value; LS.set("settings",settings); syncSettings();}));
+  app.querySelectorAll(".hdel").forEach(b=>b.addEventListener("click",()=>{
+    // removed keys stay in past days' habits_done; they're simply no longer rendered
+    settings.habits.splice(+b.dataset.i,1);
+    LS.set("settings",settings); syncSettings(); renderSettings();
+  }));
   document.getElementById("addHabit").addEventListener("click",()=>{
     settings.habits.push({key:"h"+Date.now(),label:"New practice"}); LS.set("settings",settings); renderSettings();});
   document.getElementById("export").addEventListener("click",exportData);
