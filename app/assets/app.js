@@ -24,6 +24,62 @@ const LS = {
 };
 const todayISO = (d=new Date())=> d.toLocaleDateString("en-CA"); // YYYY-MM-DD local
 
+// ---------- photo store (IndexedDB) ----------
+// Photos as base64 in localStorage blow its ~5 MB quota within weeks of daily
+// use, and quota failures are silent. IndexedDB holds the compressed Blobs.
+const photoDB = {
+  _db: null,
+  async open(){
+    if(this._db) return this._db;
+    this._db = await new Promise((res,rej)=>{
+      const q = indexedDB.open("shan-photos", 1);
+      q.onupgradeneeded = ()=> q.result.createObjectStore("photos");
+      q.onsuccess = ()=> res(q.result);
+      q.onerror = ()=> rej(q.error);
+    });
+    return this._db;
+  },
+  async put(date, blob){
+    const db = await this.open();
+    return new Promise((res,rej)=>{
+      const tx = db.transaction("photos","readwrite");
+      tx.objectStore("photos").put(blob, date);
+      tx.oncomplete = ()=> res();
+      tx.onerror = ()=> rej(tx.error);
+    });
+  },
+  async get(date){
+    const db = await this.open();
+    return new Promise((res,rej)=>{
+      const q = db.transaction("photos").objectStore("photos").get(date);
+      q.onsuccess = ()=> res(q.result || null);
+      q.onerror = ()=> rej(q.error);
+    });
+  },
+  async dates(){
+    const db = await this.open();
+    return new Promise((res,rej)=>{
+      const q = db.transaction("photos").objectStore("photos").getAllKeys();
+      q.onsuccess = ()=> res(q.result || []);
+      q.onerror = ()=> rej(q.error);
+    });
+  },
+};
+// one-time migration of legacy base64 photos out of localStorage
+async function migratePhotos(){
+  const legacy = Object.keys(localStorage).filter(k=>k.startsWith("shan:photo:"));
+  for(const k of legacy){
+    try{
+      const dataURL = JSON.parse(localStorage.getItem(k));
+      if(dataURL){
+        const blob = await (await fetch(dataURL)).blob();
+        await photoDB.put(k.slice("shan:photo:".length), blob);
+      }
+      localStorage.removeItem(k);
+    }catch(e){ console.warn("photo migration failed for", k, e); }
+  }
+}
+
 // ---------- Supabase client (lazy, resilient) ----------
 let sb = null, user = null;
 async function initSupabase(){
@@ -236,9 +292,9 @@ async function onPhoto(e){
   const file=e.target.files[0]; if(!file) return;
   const blob=await compress(file, 1080, .8);
   const path=`${user?user.id:"local"}/${viewDate}.jpg`;
-  // local preview cache (dataURL)
-  const reader=new FileReader(); reader.onload=()=>{ LS.set("photo:"+viewDate,reader.result); renderPhoto({photo_path:path,_local:reader.result}); };
-  reader.readAsDataURL(blob);
+  try{ await photoDB.put(viewDate, blob); }
+  catch(err){ toast("Photo could not be saved on this device"); console.warn(err); }
+  renderPhoto({photo_path:path});
   if(sb&&user){ try{
     await sb.storage.from("physique").upload(path,blob,{upsert:true,contentType:"image/jpeg"});
     await saveDay(viewDate,{photo_path:path});
@@ -246,21 +302,28 @@ async function onPhoto(e){
   else saveDay(viewDate,{photo_path:path});
 }
 function compress(file,max,q){ return new Promise(res=>{
-  const img=new Image(); img.onload=()=>{
+  const img=new Image(); const url=URL.createObjectURL(file);
+  img.onload=()=>{
+    URL.revokeObjectURL(url);
     let{width:w,height:h}=img; const scale=Math.min(1,max/Math.max(w,h)); w*=scale;h*=scale;
     const c=document.createElement("canvas");c.width=w;c.height=h;
     c.getContext("2d").drawImage(img,0,0,w,h); c.toBlob(res,"image/jpeg",q);
-  }; img.src=URL.createObjectURL(file);
+  }; img.src=url;
 });}
-async function renderPhoto(day){
-  const wrap=document.getElementById("photoWrap"); if(!wrap) return;
-  const local=LS.get("photo:"+viewDate,null)||day._local;
-  if(local){ wrap.innerHTML=`<div class="photo-frame"><img src="${local}" alt="physique ${viewDate}"></div>`; return; }
+async function renderPhoto(day, date=viewDate, wrapEl=null){
+  const wrap=wrapEl||document.getElementById("photoWrap"); if(!wrap) return;
+  let blob=null; try{ blob=await photoDB.get(date); }catch(e){}
+  if(blob){
+    const url=URL.createObjectURL(blob);
+    wrap.innerHTML=`<div class="photo-frame"><img src="${url}" alt="physique ${date}"></div>`;
+    wrap.querySelector("img").addEventListener("load",()=>URL.revokeObjectURL(url));
+    return;
+  }
   if(day.photo_path && sb && user){ try{
     const {data}=await sb.storage.from("physique").createSignedUrl(day.photo_path,3600);
-    if(data?.signedUrl) wrap.innerHTML=`<div class="photo-frame"><img src="${data.signedUrl}"></div>`;
+    if(data?.signedUrl){ wrap.innerHTML=`<div class="photo-frame"><img src="${data.signedUrl}"></div>`; return; }
   }catch(e){} }
-  else wrap.innerHTML="";
+  wrap.innerHTML="";
 }
 
 // ---------- habits ----------
@@ -535,6 +598,7 @@ async function startApp(offline){
   window.addEventListener("online",flushPending); flushPending();
 }
 (async function boot(){
+  try{ await migratePhotos(); }catch(e){ console.warn("photo migration skipped", e); }
   try{ await initSupabase(); }catch(e){}
   // hydrate settings from supabase if available
   if(sb&&user){ try{ const {data}=await sb.from("settings").select("*").eq("user_id",user.id).maybeSingle();
