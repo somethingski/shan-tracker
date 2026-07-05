@@ -82,8 +82,9 @@ async function saveWorkout(date, dayType, ex, bracket, sets, pain, painNote, fun
     clearPending();
   }catch(e){/* stays pending */} }
   // rank updates locally even offline; updateRank guards its own network sync
-  if(est) await updateRank(ex, est, date);
-  return est;
+  let ranked=false;
+  if(est) ranked = await updateRank(ex, est, date);
+  return { est, ranked };
 }
 
 async function saveDay(date, patch){
@@ -107,9 +108,9 @@ async function flushPending(){
 
 // ---------- rank update (current + peak, can go down) ----------
 async function updateRank(exKey, est1rm, date){
-  const lift = RANK_LIFTS[exKey] ? exKey : null; if(!lift) return;
+  const lift = RANK_LIFTS[exKey] ? exKey : null; if(!lift) return false;
   const bw = settings.bodyweight_lb || (LS.get("day:"+date,{}).bodyweight_lb) || settings.bodyweight_lb;
-  if(!bw) return;
+  if(!bw) return false;
   const idx = tierIndex(lift, est1rm, bw), ratio = est1rm/bw;
   let rank = LS.get("rank:"+lift, {current_tier:0,peak_tier:0});
   rank.current_tier = idx; rank.current_1rm = est1rm; rank.current_ratio = ratio; // LIVE — can drop
@@ -119,6 +120,7 @@ async function updateRank(exKey, est1rm, date){
     await sb.from("ranks").upsert({user_id:user.id,exercise:lift,...rank},{onConflict:"user_id,exercise"});
     await sb.from("rank_history").insert({user_id:user.id,exercise:lift,log_date:date,tier:idx,est_1rm:est1rm,ratio});
   }catch(e){} }
+  return true;
 }
 
 // ============================================================
@@ -215,9 +217,9 @@ function wireToday(dayType){
       const pain=block.querySelector("[data-pain]").classList.contains("on");
       const painNote=block.querySelector("[data-painnote]")?.value||null;
       const fun=block.querySelectorAll(".fun.on").length||null;
-      const est=await saveWorkout(viewDate,dayType,exKey,wi.bracket,sets,pain,painNote,fun);
+      const {est,ranked}=await saveWorkout(viewDate,dayType,exKey,wi.bracket,sets,pain,painNote,fun);
       block.querySelectorAll(".setrow").forEach(r=>r.classList.add("logged"));
-      if(est && RANK_LIFTS[exKey]) toast(`1RM ~${Math.round(est)} lb · rank updated`);
+      if(est && RANK_LIFTS[exKey]) toast(ranked?`1RM ~${Math.round(est)} lb · rank updated`:`1RM ~${Math.round(est)} lb · log bodyweight to rank`);
       else toast("Logged");
     });
   });
