@@ -4,8 +4,10 @@
 // with a cached fallback) for auth + data; localStorage as an
 // offline cache so logging works with no signal in the gym.
 // ============================================================
-import { PROGRAM, DAY_BY_WEEKDAY, DAY_TITLES, weekInfo, transitionState, isRankBracket } from "./program.js";
-import { thresholdsFor, conservative1RM, tierIndex, percentileFor, TIERS, RANK_LIFTS } from "./ranks.js";
+// __V__ is stamped to the commit SHA by the deploy workflow — GitHub Pages
+// caches JS for 10 min, and module imports are cached separately from app.js.
+import { PROGRAM, DAY_BY_WEEKDAY, DAY_TITLES, weekInfo, transitionState, isRankBracket } from "./program.js?v=__V__";
+import { thresholdsFor, conservative1RM, tierIndex, percentileFor, TIERS, RANK_LIFTS } from "./ranks.js?v=__V__";
 
 // tier pigments (ink-washed) — index by TIER family
 const PIG = ["#3D3A34","#3D3A34","#3D3A34","#6E5A3A","#6E5A3A","#6E5A3A",

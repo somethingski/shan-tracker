@@ -22,6 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # GitHub Pages serves JS with max-age=600; module imports cache separately.
+      # Stamping the SHA into the __V__ tokens forces fresh fetches per deploy.
+      - name: Stamp cache-busting version into asset URLs
+        run: sed -i "s/__V__/${GITHUB_SHA::8}/g" app/index.html app/assets/app.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
