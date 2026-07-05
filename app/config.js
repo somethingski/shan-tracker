@@ -7,5 +7,5 @@
 // ============================================================
 window.SHAN_CONFIG = {
   SUPABASE_URL:  "https://rwchvyoegbnylkwkbnhp.supabase.co",   // e.g. https://abcdefgh.supabase.co
-  SUPABASE_ANON: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3Y2h2eW9lZ2JueWxrd2tibmhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMDY2MzMsImV4cCI6MjA5ODc4MjYzM30.W6v8KjdXfcAtuDMQS9z7ebn7Dq4ozQWPRTHdprLQbQ8 ",   // the long anon public key
+  SUPABASE_ANON: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3Y2h2eW9lZ2JueWxrd2tibmhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyMDY2MzMsImV4cCI6MjA5ODc4MjYzM30.W6v8KjdXfcAtuDMQS9z7ebn7Dq4ozQWPRTHdprLQbQ8",   // the long anon public key
 };
