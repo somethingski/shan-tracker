@@ -78,8 +78,9 @@ async function saveWorkout(date, dayType, ex, bracket, sets, pain, painNote, fun
   if(sb&&user){ try{
     await sb.from("workout_logs").upsert(row,{onConflict:"user_id,log_date,exercise"});
     clearPending();
-    if(est) await updateRank(ex, est, date);
   }catch(e){/* stays pending */} }
+  // rank updates locally even offline; updateRank guards its own network sync
+  if(est) await updateRank(ex, est, date);
   return est;
 }
 
@@ -534,6 +535,12 @@ async function startApp(offline){
   // hydrate settings from supabase if available
   if(sb&&user){ try{ const {data}=await sb.from("settings").select("*").eq("user_id",user.id).maybeSingle();
     if(data){settings=data;LS.set("settings",settings);} else { await syncSettings(); } }catch(e){} }
+  // hydrate ranks too — seals render from localStorage, which a new browser,
+  // private window, or the installed PWA won't share with past sessions
+  if(sb&&user){ try{ const {data:rk}=await sb.from("ranks").select("*").eq("user_id",user.id);
+    for(const r of rk||[]) LS.set("rank:"+r.exercise, {current_tier:r.current_tier,current_1rm:r.current_1rm,
+      current_ratio:r.current_ratio,peak_tier:r.peak_tier,peak_1rm:r.peak_1rm,peak_date:r.peak_date});
+  }catch(e){} }
   if(sb && !user){ await renderAuth(); }
   else { await startApp(!sb); }
 })();
