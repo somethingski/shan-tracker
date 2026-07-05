@@ -114,6 +114,34 @@ button.ghost{background:transparent;color:var(--ink-soft);border:1px solid rgba(
 /* bodyweight + photo */
 .daybar{display:flex;align-items:center;gap:14px;margin:8px 0 4px}
 .daybar input{width:96px}
+.daybar .nav{background:none;border:1px solid rgba(138,137,124,.4);border-radius:3px;
+  color:var(--ink-soft);width:34px;height:34px;font-size:18px;line-height:1;cursor:pointer;
+  font-family:inherit;transition:border-color var(--t-micro)}
+.daybar .nav:not(:disabled):active{border-color:var(--jade)}
+.daybar .nav:disabled{opacity:.3;cursor:default}
+.datechip{background:none;border:none;cursor:pointer;font-size:13px;color:var(--ink-faint);padding:4px}
+
+/* history calendar — hairline grid, jade dot = workout, bronze dot = photo,
+   faint enso ring = all practices done */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}
+.cal-h{text-align:center;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  color:var(--ink-faint);padding:4px 0}
+.cal-d{position:relative;aspect-ratio:1;background:none;border:1px solid rgba(138,137,124,.22);
+  border-radius:3px;font-family:inherit;color:var(--ink);cursor:pointer;padding:2px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  transition:border-color var(--t-micro)}
+.cal-d:not(:disabled):active{border-color:var(--jade)}
+.cal-d:disabled{opacity:.3;cursor:default}
+.cal-d.today{outline:2px solid var(--jade)}
+.cal-d .n{font-size:14px}
+.cal-d .dots{display:flex;gap:3px;min-height:6px}
+.d{display:inline-block;width:6px;height:6px;border-radius:50%}
+.d.jade{background:var(--jade)}
+.d.bronze{background:var(--bronze)}
+.cal-d.enso::after{content:"";position:absolute;inset:4px;border:1.5px solid var(--jade);
+  border-radius:50%;opacity:.4;pointer-events:none;
+  -webkit-mask:conic-gradient(from 40deg,#000 0 82%,transparent 86% 100%);
+  mask:conic-gradient(from 40deg,#000 0 82%,transparent 86% 100%)}
 .photo-frame{border:1px solid var(--bronze);background:var(--paper-hi);padding:6px;border-radius:3px;
   display:inline-block;max-width:180px}
 .photo-frame img{display:block;max-width:100%;border-radius:2px}
