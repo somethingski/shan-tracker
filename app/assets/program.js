@@ -83,7 +83,8 @@ export const PROGRAM = {
 export function weekInfo(programStart, today = new Date()){
   const start = new Date(programStart + "T00:00:00");
   const ms = today - start;
-  const dayNum = Math.floor(ms / 86400000);            // 0-based day
+  // clamp: dates before program_start (reachable via history browsing) read as week 1
+  const dayNum = Math.max(0, Math.floor(ms / 86400000)); // 0-based day
   const weekNum = Math.floor(dayNum / 7);              // 0-based absolute week
   const wavePos = ((weekNum % 4) + 4) % 4;             // 0..3
   const brackets = ["10-12","7-9","4-6","10-12"];
