@@ -9,9 +9,6 @@
 <meta name="apple-mobile-web-app-title" content="Shan">
 <link rel="manifest" href="manifest.webmanifest">
 <title>山 Shan</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Spectral:ital,wght@0,300;0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/styles.css?v=__V__">
 </head>
 <body>
@@ -22,5 +19,10 @@
 <main class="wrap"><div id="app"></div></main>
 <script src="config.js?v=__V__"></script>
 <script type="module" src="assets/app.js?v=__V__"></script>
+<script>
+// offline shell cache; skipped on localhost so dev edits never go stale
+if("serviceWorker" in navigator && location.hostname!=="localhost")
+  navigator.serviceWorker.register("sw.js?v=__V__");
+</script>
 </body>
 </html>

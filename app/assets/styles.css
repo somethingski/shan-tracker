@@ -2,6 +2,24 @@
    山 Shan — styles. Ink on aged paper. Calm, offline-friendly.
    All motion resolves quickly (never in your way) but settles.
    ============================================================ */
+/* self-hosted fonts — the app must open offline in the gym. CJK glyphs are
+   not vendored: they fall through per-glyph to local Songti SC on Apple
+   devices (already next in every font stack). */
+@font-face{font-family:"Cormorant Garamond";font-style:normal;font-weight:500 700;font-display:swap;
+  src:url("fonts/CormorantGaramond.woff2") format("woff2")}
+@font-face{font-family:"Spectral";font-style:normal;font-weight:300;font-display:swap;
+  src:url("fonts/Spectral-300.woff2") format("woff2")}
+@font-face{font-family:"Spectral";font-style:normal;font-weight:400;font-display:swap;
+  src:url("fonts/Spectral-400.woff2") format("woff2")}
+@font-face{font-family:"Spectral";font-style:italic;font-weight:400;font-display:swap;
+  src:url("fonts/Spectral-400i.woff2") format("woff2")}
+@font-face{font-family:"Spectral";font-style:normal;font-weight:500;font-display:swap;
+  src:url("fonts/Spectral-500.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:400;font-display:swap;
+  src:url("fonts/IBMPlexMono-400.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:500;font-display:swap;
+  src:url("fonts/IBMPlexMono-500.woff2") format("woff2")}
+
 :root{
   --paper:#EDE6D6; --paper-deep:#E3DAC6; --paper-hi:#F5F0E3;
   --ink:#20211C; --ink-soft:#4A4B42; --ink-faint:#8A897C;

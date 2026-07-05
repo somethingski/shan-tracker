@@ -672,7 +672,9 @@ function renderSettings(){
     </div>`).join("");
   html+=`<div style="margin-top:10px"><button class="ghost" id="addHabit">Add practice</button></div>`;
   html+=brush()+`<div class="eyebrow">Backup</div>
-    <div style="display:flex;gap:10px"><button class="ghost" id="export">Export data</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="ghost" id="export">Export data</button>
+    <button class="ghost" id="importBtn">Import data</button>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
     <button class="ghost" id="signout">Sign out</button></div>`;
   html+=`<p class="lbl" style="margin-top:18px">${user?`Signed in as ${user.email}. Data syncs to your private Supabase.`:`Offline mode — data is on this device. Add Supabase keys to sync.`}</p>`;
   app.innerHTML=html;
@@ -682,6 +684,8 @@ function renderSettings(){
   document.getElementById("addHabit").addEventListener("click",()=>{
     settings.habits.push({key:"h"+Date.now(),label:"New practice"}); LS.set("settings",settings); renderSettings();});
   document.getElementById("export").addEventListener("click",exportData);
+  document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("importFile").click());
+  document.getElementById("importFile").addEventListener("change",e=>{ if(e.target.files[0]) importData(e.target.files[0]); });
   document.getElementById("signout").addEventListener("click",async()=>{ if(sb)await sb.auth.signOut(); location.reload(); });
 }
 
@@ -693,6 +697,34 @@ function exportData(){
   ["bench","squat","rdl","db_shoulder_press"].forEach(k=>dump.ranks[k]=LS.get("rank:"+k,null));
   const blob=new Blob([JSON.stringify(dump,null,2)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`shan-backup-${todayISO()}.json`;a.click();
+}
+
+// restore a shan-backup-*.json produced by exportData
+async function importData(file){
+  let dump;
+  try{ dump = JSON.parse(await file.text()); }
+  catch(e){ toast("Not a readable backup file"); return; }
+  if(!dump || typeof dump!=="object" || typeof dump.settings!=="object"
+     || typeof dump.days!=="object" || typeof dump.work!=="object"){
+    toast("Not a Shan backup"); return;
+  }
+  const n = Object.keys(dump.days).length + Object.keys(dump.work).length;
+  if(!confirm(`Restore ${n} day records from this backup? Matching local data will be overwritten.`)) return;
+  settings = dump.settings; LS.set("settings", settings);
+  for(const [k,v] of Object.entries(dump.days)) LS.set("day:"+k, v);
+  for(const [k,v] of Object.entries(dump.work)) LS.set("work:"+k, v);
+  for(const [k,v] of Object.entries(dump.ranks||{})) if(v) LS.set("rank:"+k, v);
+  if(sb&&user){ try{
+    await syncSettings();
+    for(const v of Object.values(dump.days))
+      await sb.from("daily_logs").upsert({...v,user_id:user.id},{onConflict:"user_id,log_date"});
+    for(const rows of Object.values(dump.work)) for(const r of rows||[])
+      await sb.from("workout_logs").upsert({...r,user_id:user.id},{onConflict:"user_id,log_date,exercise"});
+    for(const [k,v] of Object.entries(dump.ranks||{})) if(v)
+      await sb.from("ranks").upsert({user_id:user.id,exercise:k,...v},{onConflict:"user_id,exercise"});
+  }catch(e){ toast("Restored on this device · cloud sync incomplete"); renderSettings(); return; } }
+  toast("Backup restored");
+  renderSettings();
 }
 
 // ---------- auth gate ----------
