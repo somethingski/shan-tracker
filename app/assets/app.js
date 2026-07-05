@@ -225,7 +225,8 @@ async function renderToday(){
       let nm = ex.name;
       if(ex.transition==="weighted"&&tr.past6) nm = "Weighted "+nm.toLowerCase();
       if(ex.key==="calf") nm = tr.calf;
-      if(ex.key==="db_shoulder_press") nm += `  <span class="approx">standards approximate</span>`;
+      if(ex.key==="db_shoulder_press") nm += `  <span class="approx">per-dumbbell lb · standards approximate</span>`;
+      if(ex.key==="rdl") nm += `  <span class="approx">judged on deadlift standards</span>`;
       const nSets = ex.sets;
       html += `<div class="ex" data-ex="${ex.key}" data-type="${dayType}">
         <div class="top"><span class="name">${nm}</span> ${rankBadge}
@@ -391,8 +392,10 @@ function openLadder(key){
   const r=LS.get("rank:"+key,{current_tier:0,peak_tier:0});
   const rows=TIERS.map((t,i)=>{
     const lb=Math.round(th[i]*bw);
-    const cum=[0.65,2.82,7.57,14.46,23.15,30.63,38.59,45.75,52.60,60.56,67.46,73.00,78.30,82.79,86.37,89.99,93.22,95.68,97.71,98.77,99.32,99.68,99.82,99.95,100][i];
-    const top=Math.max(1,Math.round(100-cum));
+    // percentile matching the actual threshold construction: even 3rd→95th
+    // spread up to Diamond 3, then the super-elite tail eases toward top 1%
+    const p = i<=17 ? 3+(i/17)*92 : 95+((i-17)/7)*4;
+    const top=Math.max(1,Math.round(100-p));
     return `<div class="rung ${i===r.current_tier?'cur':''} ${i===r.peak_tier?'peak':''}">
       <span class="pip" style="background:${PIG[i]}"></span>
       <span class="nm">${t}</span><span class="wt mono">${lb} lb</span>
@@ -404,6 +407,8 @@ function openLadder(key){
     <h2 class="sec">${cur}</h2>
     <p class="lbl">Current 1RM ~${r.current_1rm?Math.round(r.current_1rm):"—"} lb at ${bw} lb bodyweight.
     Peak: ${TIERS[r.peak_tier]}${r.peak_1rm?` (${Math.round(r.peak_1rm)} lb)`:""}.</p>
+    ${key==="db_shoulder_press"?`<p class="lbl" style="font-style:italic">Weights are per dumbbell. Standards approximate.</p>`:""}
+    ${key==="rdl"?`<p class="lbl" style="font-style:italic">Judged on conventional-deadlift standards — this ladder runs deliberately hard for an RDL.</p>`:""}
     ${brush()}
     <div class="ladder">${rows}</div>
     <div style="margin-top:18px"><button class="act" id="closeLadder">Close</button></div>
