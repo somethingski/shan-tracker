@@ -67,7 +67,7 @@ async function loadDay(date){
 async function saveWorkout(date, dayType, ex, bracket, sets, pain, painNote, fun){
   // conservative 1RM only from a heavy (4-6) set; take best set's estimate
   let est=null;
-  if(isRankBracket(bracket)){
+  if(true /* TEMP-TEST: isRankBracket(bracket) disabled to test ranks off-wave; REVERT before real use */){
     for(const s of sets){ if(s.weight&&s.reps>0&&s.reps<=36){ /* TEMP-TEST: bracket check (reps>=4&&reps<=6) disabled to test ranks off-wave; REVERT before real use */ const e=conservative1RM(s.weight,s.reps); if(!est||e>est)est=e; } }
   }
   const row = { user_id:user?.id, log_date:date, day_type:dayType, exercise:ex,
