@@ -6,7 +6,7 @@
 // ============================================================
 // __V__ is stamped to the commit SHA by the deploy workflow — GitHub Pages
 // caches JS for 10 min, and module imports are cached separately from app.js.
-import { PROGRAM, DAY_BY_WEEKDAY, DAY_TITLES, weekInfo, transitionState, isRankBracket } from "./program.js?v=__V__";
+import { DAY_TITLES, weekInfo, transitionState, isRankBracket, defaultProgram } from "./program.js?v=__V__";
 import { thresholdsFor, conservative1RM, tierIndex, percentileFor, TIERS, RANK_LIFTS } from "./ranks.js?v=__V__";
 
 // tier pigments (ink-washed) — index by TIER family
@@ -202,8 +202,7 @@ function mast(sub){
 
 async function renderToday(){
   const wi = weekInfo(settings.program_start, new Date(viewDate+"T12:00:00"));
-  const wd = new Date(viewDate+"T12:00:00").getDay();
-  const dayType = DAY_BY_WEEKDAY[wd];
+  const dayType = dayTypeForDate(viewDate);
   const tr = transitionState(wi.weekNum);
   const {day, work} = await loadDay(viewDate);
   const workBy = Object.fromEntries(work.map(w=>[w.exercise,w]));
@@ -215,7 +214,7 @@ async function renderToday(){
     : new Date(viewDate+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
   html += `<div class="daybar">
     <button class="nav" id="prevDay" aria-label="previous day">‹</button>
-    <span class="eyebrow" style="margin:0;flex:1">${DAY_TITLES[dayType]}</span>
+    <span class="eyebrow" style="margin:0;flex:1">${dayTitle(dayType)}</span>
     <button class="datechip mono" id="dateChip" title="back to today">${dateLabel}</button>
     <button class="nav" id="nextDay" aria-label="next day" ${isToday?"disabled":""}>›</button></div>`;
   html += brush();
@@ -223,7 +222,7 @@ async function renderToday(){
   if(dayType==="rest"){
     html += `<div class="empty">Rest day · 息. Log bodyweight and today's practices below.</div>`;
   } else {
-    for(const ex of PROGRAM[dayType]){
+    for(const ex of dayExercises(dayType)){
       const logged = workBy[ex.key];
       const rankBadge = ex.rank ? `<span class="eyebrow" style="margin:0;color:var(--cinnabar)">rank lift</span>`:"";
       let nm = ex.name;
@@ -454,10 +453,18 @@ function openLadder(key){
   setTimeout(()=>scrim.querySelector(".rung.cur")?.scrollIntoView({block:"center"}),60);
 }
 
-// ---------- attendance / day classification ----------
-// Push/Pull/Legs family for a day_type ("push_a" → "push"); used for calendar
-// colour-coding and attendance. Rest days return "rest".
-function dayFamily(dayType){ return (dayType||"rest").split("_")[0]; }
+// ---------- program accessors ----------
+// The whole app reads the program through these, so a user's custom
+// settings.program transparently replaces the hardcoded default everywhere.
+function activeProgram(){ return settings.program || defaultProgram(); }
+// weekday (0=Sun..6=Sat) → day id, using the current schedule
+function dayTypeForDate(date){ return activeProgram().schedule[new Date(date+"T12:00:00").getDay()] || "rest"; }
+// day metadata, always resolvable: custom → default → sensible fallback so that
+// old logs referencing a since-deleted day still render.
+function dayDef(id){ return activeProgram().days[id] || defaultProgram().days[id] || null; }
+function dayTitle(id){ return id==="rest" ? DAY_TITLES.rest : (dayDef(id)?.title || id); }
+function dayExercises(id){ return dayDef(id)?.exercises || []; }
+function dayFamily(id){ return dayDef(id)?.family || (id||"rest").split("_")[0]; }
 
 // How a calendar day stands re: attendance. A "missed" day is the feature's
 // definition of an unattended workout: a scheduled (non-rest) day, now in the
@@ -466,7 +473,7 @@ function dayFamily(dayType){ return (dayType||"rest").split("_")[0]; }
 function attendanceState(date, workLen){
   const today=todayISO();
   if(date>today) return "future";
-  const dayType = DAY_BY_WEEKDAY[new Date(date+"T12:00:00").getDay()];
+  const dayType = dayTypeForDate(date);
   if(dayType==="rest") return "rest";
   if(workLen>0) return "attended";
   return date===today ? "pending" : "missed";
@@ -513,7 +520,9 @@ async function renderHistory(){
     const hasPhoto = photoDates.has(date) || !!day?.photo_path;
     const allHabits = !!day && settings.habits.length>0 && settings.habits.every(h=>day.habits_done?.[h.key]);
     const state = attendanceState(date, work.length);
-    const fam = dayFamily(DAY_BY_WEEKDAY[new Date(date+"T12:00:00").getDay()]);
+    // colour an attended day by what was actually logged (the schedule may have
+    // changed since); fall back to the scheduled day for everything else.
+    const fam = dayFamily(work[0]?.day_type || dayTypeForDate(date));
     const typeClass = state==="attended" ? `type-${fam}` : (state==="missed" ? "missed" : "");
     html += `<button class="cal-d ${date===today?'today':''} ${allHabits?'enso':''} ${typeClass}"
       data-date="${date}" ${date>today?"disabled":""}>
@@ -544,10 +553,11 @@ function shiftMonth(n){
 async function openDaySheet(date){
   const {day, work} = await loadDay(date);
   const d = new Date(date+"T12:00:00");
-  const dayType = DAY_BY_WEEKDAY[d.getDay()];
+  // prefer the day type that was logged; fall back to the current schedule
+  const dayType = work[0]?.day_type || dayTypeForDate(date);
   const title = d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
 
-  let body = `<div class="eyebrow">${title}</div><h2 class="sec">${DAY_TITLES[dayType]}</h2>`+brush();
+  let body = `<div class="eyebrow">${title}</div><h2 class="sec">${dayTitle(dayType)}</h2>`+brush();
   body += `<div id="sheetPhoto" style="margin-bottom:10px"></div>`;
   if(day.bodyweight_lb) body += `<div class="stat"><span class="k">bodyweight</span><span class="v mono">${day.bodyweight_lb} lb</span></div>`;
   if(work.length){
@@ -787,7 +797,11 @@ function strengthChart(series){
 }
 
 function PROGRAM_NAME(key){
-  for(const day of Object.values(PROGRAM)){ const f=day.find(e=>e.key===key); if(f) return f.name; }
+  // active program first (custom names), then the default so a since-removed
+  // exercise still shows a readable name in old logs
+  for(const src of [activeProgram().days, defaultProgram().days]){
+    for(const day of Object.values(src)){ const f=day.exercises.find(e=>e.key===key); if(f) return f.name; }
+  }
   return null;
 }
 function habitAdherence(days){
@@ -809,7 +823,15 @@ function pickWorst(moves,pains,adh,habits){
   return worstKey?`consistency on "${worstKey}" (${Math.round(worstV*100)}%)`:"keep logging to reveal patterns";
 }
 
-async function syncSettings(){ if(sb&&user) try{ await sb.from("settings").upsert({user_id:user.id,...settings},{onConflict:"user_id"}); }catch(e){} }
+async function syncSettings(){
+  if(!(sb&&user)) return;
+  try{
+    const {error}=await sb.from("settings").upsert({user_id:user.id,...settings},{onConflict:"user_id"});
+    // older databases may lack the `program` column; sync everything else so
+    // the rest of settings still reaches the cloud until the migration is run
+    if(error){ const {program,...rest}=settings; await sb.from("settings").upsert({user_id:user.id,...rest},{onConflict:"user_id"}); }
+  }catch(e){/* offline: stays in local cache */}
+}
 
 // cinnabar seal pressed onto the page for a true 1RM PR (380ms per spec)
 function sealPress(){
@@ -844,6 +866,7 @@ async function go(tab){ activeTab=tab; mountTabs();
   else if(tab==="analytics") await renderAnalytics();
   else if(tab==="history") await renderHistory();
   else if(tab==="settings") renderSettings();
+  else if(tab==="program") renderProgramEditor();
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
@@ -856,7 +879,8 @@ function renderSettings(){
       <input type="date" id="pstart" value="${settings.program_start}"></div>
     <div class="daybar"><span class="lbl">deload this week</span>
       <span class="dot ${isDeload?'on':''}" id="deloadDot" title="tag this week as deload"></span>
-      <span class="lbl" style="font-style:italic">excluded from strength trends</span></div>`;
+      <span class="lbl" style="font-style:italic">excluded from strength trends</span></div>
+    <div style="margin-top:10px"><button class="ghost" id="editProgram">Edit exercises &amp; schedule →</button></div>`;
   html+=brush()+`<div class="eyebrow">Daily practices (editable)</div>`;
   html+=settings.habits.map((h,i)=>`<div class="daybar">
     <input class="hlabel" data-i="${i}" value="${h.label}" style="flex:1;font-family:inherit">
@@ -871,6 +895,7 @@ function renderSettings(){
   html+=`<p class="lbl" style="margin-top:18px">${user?`Signed in as ${user.email}. Data syncs to your private Supabase.`:`Offline mode — data is on this device. Add Supabase keys to sync.`}</p>`;
   app.innerHTML=html;
   document.getElementById("pstart").addEventListener("change",e=>{settings.program_start=e.target.value;LS.set("settings",settings);syncSettings();});
+  document.getElementById("editProgram").addEventListener("click",()=>go("program"));
   document.getElementById("deloadDot").addEventListener("click",e=>{
     const wk=weekInfo(settings.program_start).weekNum;
     const set=new Set(settings.deload_weeks||[]);
@@ -892,6 +917,119 @@ function renderSettings(){
   document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("importFile").click());
   document.getElementById("importFile").addEventListener("change",e=>{ if(e.target.files[0]) importData(e.target.files[0]); });
   document.getElementById("signout").addEventListener("click",async()=>{ if(sb)await sb.auth.signOut(); location.reload(); });
+}
+
+// ---------- program editor (編): edit exercises, order, and day structure ----------
+const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const FAMILIES = ["push","pull","legs","core","other"];
+// escape user text before dropping it into an HTML attribute
+function escAttr(s){ return String(s??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+// materialise settings.program (from the default) on first edit, apply the
+// change, persist, and optionally re-render. Field edits pass rerender=false so
+// the input keeps focus while typing; structural edits re-render.
+function progEdit(fn, rerender=true){
+  if(!settings.program) settings.program = defaultProgram();
+  fn(settings.program);
+  LS.set("settings",settings); syncSettings();
+  if(rerender) renderProgramEditor();
+}
+function moveExercise(dayId,i,dir){
+  progEdit(p=>{ const arr=p.days[dayId].exercises, j=i+dir;
+    if(j<0||j>=arr.length) return; [arr[i],arr[j]]=[arr[j],arr[i]]; });
+}
+
+function renderProgramEditor(){
+  const p=activeProgram();
+  const dayIds=Object.keys(p.days);
+  let html=mast("Program · 編");
+  html+=`<p class="lbl" style="margin:2px 0 8px">Rearrange your split, exercises, and their order. Changes apply to future logging; past entries keep their own record.</p>`+brush();
+
+  html+=`<div class="eyebrow">Weekly schedule</div>`;
+  WEEKDAYS.forEach((name,wd)=>{
+    const sel=p.schedule[wd]||"rest";
+    html+=`<div class="daybar"><span class="lbl" style="flex:1">${name}</span>
+      <select class="exsel sch" data-wd="${wd}" style="flex:0 0 55%">
+        <option value="rest" ${sel==="rest"?"selected":""}>Rest</option>
+        ${dayIds.map(id=>`<option value="${id}" ${sel===id?"selected":""}>${escAttr(p.days[id].title)}</option>`).join("")}
+      </select></div>`;
+  });
+
+  html+=brush()+`<div class="eyebrow">Days</div>`;
+  dayIds.forEach(id=>{
+    const day=p.days[id];
+    html+=`<div class="progday">
+      <div class="daybar">
+        <input class="txtin dtitle" data-day="${id}" value="${escAttr(day.title)}" style="flex:1;font-weight:600">
+        <select class="exsel dfam" data-day="${id}" style="flex:0 0 28%">
+          ${FAMILIES.map(f=>`<option value="${f}" ${day.family===f?"selected":""}>${f}</option>`).join("")}
+        </select>
+        <button class="ghost ddel" data-day="${id}" aria-label="delete day">✕</button>
+      </div>`;
+    day.exercises.forEach((ex,i)=>{
+      html+=`<div class="exrow">
+        <span class="exmove">
+          <button class="ghost mup" data-day="${id}" data-i="${i}" aria-label="move up" ${i===0?"disabled":""}>▲</button>
+          <button class="ghost mdn" data-day="${id}" data-i="${i}" aria-label="move down" ${i===day.exercises.length-1?"disabled":""}>▼</button>
+        </span>
+        <input class="txtin exname" data-day="${id}" data-i="${i}" value="${escAttr(ex.name)}" style="flex:1">
+        ${ex.rank?`<span class="rankbadge" title="ranked lift">rank</span>`:""}
+        <input class="txtin exsets mono" data-day="${id}" data-i="${i}" inputmode="numeric" value="${ex.sets||3}" aria-label="target sets">
+        <span class="unit">sets</span>
+        <button class="ghost exdel" data-day="${id}" data-i="${i}" aria-label="remove exercise">✕</button>
+      </div>`;
+    });
+    if(!day.exercises.length) html+=`<p class="lbl" style="padding:6px 0">No exercises yet.</p>`;
+    html+=`<div style="margin:8px 0 2px"><button class="ghost exadd" data-day="${id}">Add exercise</button></div></div>`;
+  });
+
+  html+=`<div style="margin-top:10px"><button class="ghost" id="addDay">Add day</button></div>`+brush();
+  html+=`<div style="display:flex;gap:10px;flex-wrap:wrap">
+    <button class="act" id="progDone">Done</button>
+    <button class="ghost" id="progReset">Reset to default</button></div>`;
+  app.innerHTML=html;
+  wireProgramEditor();
+}
+
+function wireProgramEditor(){
+  // schedule / family (structural: re-render so schedule labels stay in sync)
+  app.querySelectorAll(".sch").forEach(s=>s.addEventListener("change",()=>
+    progEdit(p=>{ p.schedule[+s.dataset.wd]=s.value; })));
+  app.querySelectorAll(".dfam").forEach(s=>s.addEventListener("change",()=>
+    progEdit(p=>{ p.days[s.dataset.day].family=s.value; }, false)));
+  // text fields: persist without re-render to keep the caret
+  app.querySelectorAll(".dtitle").forEach(inp=>inp.addEventListener("change",()=>
+    progEdit(p=>{ p.days[inp.dataset.day].title=inp.value.trim()||"Untitled"; }, false)));
+  app.querySelectorAll(".exname").forEach(inp=>inp.addEventListener("change",()=>
+    progEdit(p=>{ p.days[inp.dataset.day].exercises[+inp.dataset.i].name=inp.value.trim()||"Exercise"; }, false)));
+  app.querySelectorAll(".exsets").forEach(inp=>inp.addEventListener("change",()=>
+    progEdit(p=>{ p.days[inp.dataset.day].exercises[+inp.dataset.i].sets=Math.max(1,Math.min(10,parseInt(inp.value)||3)); }, false)));
+  // reorder
+  app.querySelectorAll(".mup").forEach(b=>b.addEventListener("click",()=>moveExercise(b.dataset.day,+b.dataset.i,-1)));
+  app.querySelectorAll(".mdn").forEach(b=>b.addEventListener("click",()=>moveExercise(b.dataset.day,+b.dataset.i,1)));
+  // delete exercise (warn for rank lifts, whose standards can't be regenerated)
+  app.querySelectorAll(".exdel").forEach(b=>b.addEventListener("click",()=>{
+    const ex=activeProgram().days[b.dataset.day].exercises[+b.dataset.i];
+    if(ex.rank && !confirm(`${ex.name} is a ranked lift — removing it means it won't rank. Remove anyway?`)) return;
+    progEdit(p=>{ p.days[b.dataset.day].exercises.splice(+b.dataset.i,1); });
+  }));
+  app.querySelectorAll(".exadd").forEach(b=>b.addEventListener("click",()=>
+    progEdit(p=>{ p.days[b.dataset.day].exercises.push({key:"x"+Date.now(),name:"New exercise",sets:3}); })));
+  // day add/delete
+  document.getElementById("addDay").addEventListener("click",()=>
+    progEdit(p=>{ p.days["day"+Date.now()]={title:"New day",family:"other",exercises:[]}; }));
+  app.querySelectorAll(".ddel").forEach(b=>b.addEventListener("click",()=>{
+    const id=b.dataset.day;
+    if(!confirm(`Delete "${activeProgram().days[id].title}" and its exercises?`)) return;
+    progEdit(p=>{ delete p.days[id];
+      for(const wd of Object.keys(p.schedule)) if(p.schedule[wd]===id) p.schedule[wd]="rest"; });
+  }));
+  // done / reset
+  document.getElementById("progDone").addEventListener("click",()=>go("settings"));
+  document.getElementById("progReset").addEventListener("click",()=>{
+    if(!confirm("Reset the whole program to the default 6-day split? Your custom exercises and schedule will be removed.")) return;
+    delete settings.program; LS.set("settings",settings); syncSettings(); renderProgramEditor();
+  });
 }
 
 function exportData(){

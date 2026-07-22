@@ -105,3 +105,18 @@ export function transitionState(weekNum){
 
 // Is this bracket the heavy (rank-eligible) one? Only 4-6 feeds ranks.
 export function isRankBracket(bracket){ return bracket === "4-6"; }
+
+// The hardcoded split above is the DEFAULT. Users can override it with their
+// own {days, schedule} (stored in settings.program); defaultProgram() packages
+// the constants into that same editable shape so the app has one code path.
+// `family` (push/pull/legs/core) drives History colour-coding.
+export function defaultProgram(){
+  const family = id => id.split("_")[0]; // "push_a" → "push"
+  const days = {};
+  for(const [id, exercises] of Object.entries(PROGRAM)){
+    days[id] = { title: DAY_TITLES[id], family: family(id),
+      // deep-copy so edits never mutate the shared constant
+      exercises: exercises.map(e => ({...e})) };
+  }
+  return { days, schedule: {...DAY_BY_WEEKDAY} };
+}

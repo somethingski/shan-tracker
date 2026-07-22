@@ -6,9 +6,11 @@ system for motivation instead of a spreadsheet that just sits there. It runs as
 an offline web app on my phone and syncs to my own Supabase, so the data is mine
 and there's nothing to pay for.
 
-The program is a fixed 6-day push/pull/legs split on a wave: rep targets cycle
+The default program is a 6-day push/pull/legs split on a wave: rep targets cycle
 10–12, then 7–9, then 4–6, and repeat. Each day the app loads the right workout
-and the right rep bracket for the current week. I log weight and reps per set,
+and the right rep bracket for the current week. If the default doesn't fit, the
+Settings tab has a program editor — reorder exercises, add or remove them, and
+restructure which day runs on which weekday. I log weight and reps per set,
 flag anything that hurt, rate how much I enjoyed it, and every so often add a
 bodyweight and a physique photo.
 

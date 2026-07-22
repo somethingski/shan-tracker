@@ -289,6 +289,21 @@ nav.tabs button.active{color:var(--jade)}
 .attend-cell.future{background:transparent;border:1px dashed rgba(138,137,124,.3)}
 .chartcap .attend-cell{width:9px;height:9px;vertical-align:middle;margin:0 2px 0 6px}
 
+/* program editor */
+.txtin{background:var(--paper);border:1px solid rgba(138,137,124,.4);border-radius:3px;
+  padding:8px;font-family:inherit;color:var(--ink);font-size:14px}
+.txtin:focus{outline:none;border-color:var(--jade)}
+.progday{border:1px solid rgba(138,137,124,.28);border-radius:5px;padding:10px 12px;
+  margin:10px 0;background:var(--paper-hi)}
+.exrow{display:flex;align-items:center;gap:6px;padding:6px 0;border-top:1px solid rgba(138,137,124,.18)}
+.exrow:first-of-type{border-top:none}
+.exrow .exsets{width:44px;text-align:center}
+.exmove{display:flex;flex-direction:column;gap:2px}
+.exmove .ghost{padding:1px 6px;line-height:1.1;font-size:10px;min-width:0}
+.rankbadge{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--cinnabar);
+  border:1px solid var(--cinnabar);border-radius:3px;padding:1px 5px;white-space:nowrap}
+button.ghost:disabled{opacity:.3;cursor:default}
+
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:opacity .12s linear!important}
   #bg .mist{animation:none}
