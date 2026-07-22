@@ -532,7 +532,8 @@ async function openDaySheet(date){
   renderPhoto(day, date, scrim.querySelector("#sheetPhoto"));
 }
 
-// ---------- analytics (unlocks every 6 weeks, viewable anytime) ----------
+// ---------- analytics (renders from the first logged set; the 6-week
+// block is just a heading, not a gate) ----------
 async function renderAnalytics(){
   let html=mast("Reflection · 徑");
   const wi=weekInfo(settings.program_start);
@@ -551,39 +552,50 @@ async function renderAnalytics(){
       logs.push(...LS.get("work:"+todayISO(d),[])); }
   }
 
-  // heavy-set history per exercise, deload weeks excluded from all trends
+  // est-1RM history per exercise, deload weeks excluded. Any logged set feeds
+  // the trend now, not only heavy ones: a heavy 4–6 set keeps its rank-grade
+  // stored estimate, and every other set gets an on-the-fly conservative
+  // estimate, so the charts populate from the first set even in a high-rep week.
+  // (Ranks and their pills still move on heavy sets only — that path is untouched.)
   const dlSet=new Set(settings.deload_weeks||[]);
   const byEx={};
-  logs.filter(l=>l.est_1rm && !dlSet.has(weekInfo(settings.program_start,new Date(l.log_date+"T12:00:00")).weekNum))
-    .forEach(l=>{(byEx[l.exercise]=byEx[l.exercise]||[]).push(l);});
+  logs.forEach(l=>{
+    if(dlSet.has(weekInfo(settings.program_start,new Date(l.log_date+"T12:00:00")).weekNum)) return;
+    const est = l.est_1rm ?? bestEst(l.sets);
+    if(est==null) return;
+    (byEx[l.exercise]=byEx[l.exercise]||[]).push({log_date:l.log_date, est});
+  });
   for(const arr of Object.values(byEx)) arr.sort((a,b)=>a.log_date.localeCompare(b.log_date));
 
-  // rank movement (with est-1RM sparkline once there are ≥2 heavy sessions)
+  // rank movement (with est-1RM sparkline; one set draws a point, two+ a line)
   html+=`<h2 class="sec">Ranks</h2>`;
   for(const [key,label] of Object.entries(RANK_LIFTS)){
     const r=LS.get("rank:"+key,{current_tier:0,peak_tier:0});
     const cls = r.current_tier>=r.peak_tier?"up":(r.current_tier<r.peak_tier?"down":"flat");
     html+=`<div class="stat"><span class="k">${label}</span>
       <span class="v"><span class="pill ${cls}">${TIERS[r.current_tier]}</span></span></div>`;
-    html+=sparkline((byEx[key]||[]).map(l=>l.est_1rm));
+    html+=sparkline((byEx[key]||[]).map(l=>l.est));
   }
 
-  // progression vs stalling: compare heavy-set est_1rm over time per exercise
+  // progression vs stalling: compare est-1RM over time per exercise (any bracket)
   html+=`<h2 class="sec" style="margin-top:18px">Strength trend</h2>`;
   if(dlSet.size) html+=`<p class="lbl" style="margin:0 0 6px">Deload weeks excluded.</p>`;
   const moves=[];
   for(const [ex,arr] of Object.entries(byEx)){
-    if(arr.length<2) continue;
-    const first=arr[0].est_1rm, last=arr[arr.length-1].est_1rm;
-    const delta=last-first; moves.push({ex,delta,pct:delta/first,lastDate:arr[arr.length-1].log_date});
+    const last=arr[arr.length-1].est;
+    // a delta needs two sessions; with one, show the baseline and no trend
+    const delta=arr.length<2 ? null : last-arr[0].est;
+    moves.push({ex,delta,base:last,pct:delta==null?0:delta/arr[0].est,lastDate:arr[arr.length-1].log_date});
   }
   moves.sort((a,b)=>b.pct-a.pct);
-  if(!moves.length) html+=`<div class="empty">Not enough heavy sets yet. Log a few 4–6 rep weeks.</div>`;
+  if(!moves.length) html+=`<div class="empty">No weighted sets logged yet.</div>`;
   moves.forEach(m=>{
-    const cls=m.delta>1?"up":(m.delta<-1?"down":"flat");
     const nm=(PROGRAM_NAME(m.ex)||m.ex);
+    const pill = m.delta==null
+      ? `<span class="pill flat">${Math.round(m.base)} lb</span>`
+      : `<span class="pill ${m.delta>1?"up":(m.delta<-1?"down":"flat")}">${m.delta>=0?"+":""}${Math.round(m.delta)} lb</span>`;
     html+=`<div class="stat" data-day="${m.lastDate}" style="cursor:pointer"><span class="k">${nm}</span>
-      <span class="v"><span class="pill ${cls}">${m.delta>=0?"+":""}${Math.round(m.delta)} lb</span></span></div>`;
+      <span class="v">${pill}</span></div>`;
   });
 
   // pain flags
@@ -626,10 +638,27 @@ async function renderAnalytics(){
   }));
 }
 
-// inline est-1RM sparkline (jade, hairline) — returns "" under 2 points
+// best conservative 1RM across a row's sets, any rep bracket — used only for
+// analytics so the trend populates before any heavy set is logged. Returns null
+// when no set carries external load (bodyweight-only sets have no 1RM estimate).
+function bestEst(sets){
+  let best=null;
+  for(const s of (sets||[])){
+    if(s.weight>0 && s.reps>0){ const e=conservative1RM(s.weight,s.reps); if(best==null||e>best) best=e; }
+  }
+  return best;
+}
+
+// inline est-1RM sparkline (jade, hairline) — one heavy set draws a point,
+// two or more draw the trend line. Only the true no-data case renders nothing.
 function sparkline(vals){
-  if(vals.length<2) return "";
+  if(!vals.length) return "";
   const w=340,h=44,pad=4;
+  if(vals.length===1){
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+      <circle cx="${(w/2).toFixed(1)}" cy="${(h/2).toFixed(1)}" r="3"
+        fill="var(--jade)" opacity=".75"/></svg>`;
+  }
   const min=Math.min(...vals),max=Math.max(...vals),span=(max-min)||1;
   const step=(w-2*pad)/(vals.length-1);
   const pts=vals.map((v,i)=>`${(pad+i*step).toFixed(1)},${(h-pad-((v-min)/span)*(h-2*pad)).toFixed(1)}`).join(" ");
@@ -656,7 +685,7 @@ function pickWorst(moves,pains,adh,habits){
   // priority: recurring pain > stalling rank lift > worst-adhered key habit
   if(pains.length){ const cnt={}; pains.forEach(p=>cnt[p.exercise]=(cnt[p.exercise]||0)+1);
     const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]; if(top&&top[1]>=2) return `recurring pain in ${PROGRAM_NAME(top[0])||top[0]}`; }
-  const stalls=moves.filter(m=>m.delta<=0); if(stalls.length) return `stalled ${PROGRAM_NAME(stalls[0].ex)||stalls[0].ex}`;
+  const stalls=moves.filter(m=>m.delta!=null && m.delta<=0); if(stalls.length) return `stalled ${PROGRAM_NAME(stalls[0].ex)||stalls[0].ex}`;
   let worstKey=null,worstV=2; habits.forEach(h=>{const v=adh[h.key]||0; if(v<worstV){worstV=v;worstKey=h.label;}});
   return worstKey?`consistency on "${worstKey}" (${Math.round(worstV*100)}%)`:"keep logging to reveal patterns";
 }
