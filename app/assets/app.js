@@ -263,6 +263,7 @@ async function renderToday(){
     <input type="file" id="photoInput" accept="image/*" capture="environment" hidden></div>`;
   html += `<div id="photoWrap"></div>`;
   html += `<div id="habits"></div>`;
+  html += `<button class="act finish" id="finishDay">Finish day</button>`;
   app.innerHTML = html;
 
   wireToday(dayType);
@@ -300,6 +301,26 @@ function wireToday(dayType){
   document.getElementById("prevDay").addEventListener("click",()=>shiftDay(-1));
   document.getElementById("nextDay").addEventListener("click",()=>shiftDay(1));
   document.getElementById("dateChip").addEventListener("click",()=>{viewDate=todayISO();renderToday();});
+  document.getElementById("finishDay").addEventListener("click",finishDay);
+}
+
+// Close out the day: clouds sweep in over the screen with a word of
+// encouragement, then dissipate and drop back to Today. Timings are driven by
+// setTimeout (not animationend) so it still returns cleanly under
+// prefers-reduced-motion, where the animations are suppressed.
+function finishDay(){
+  const veil=document.createElement("div");
+  veil.className="cloudveil";
+  veil.innerHTML=`${[0,1,2,3,4].map(i=>`<span class="cloud c${i}"></span>`).join("")}
+    <div class="cloudmsg">Great job today.<br><span class="cjk">加油！</span></div>`;
+  document.body.appendChild(veil);
+  requestAnimationFrame(()=>veil.classList.add("in"));
+  setTimeout(()=>veil.classList.add("out"), 1900);
+  setTimeout(()=>{
+    veil.remove();
+    viewDate=todayISO();
+    go("today");
+  }, 2900);
 }
 function shiftDay(n){
   const d=new Date(viewDate+"T12:00:00"); d.setDate(d.getDate()+n);
@@ -433,6 +454,24 @@ function openLadder(key){
   setTimeout(()=>scrim.querySelector(".rung.cur")?.scrollIntoView({block:"center"}),60);
 }
 
+// ---------- attendance / day classification ----------
+// Push/Pull/Legs family for a day_type ("push_a" → "push"); used for calendar
+// colour-coding and attendance. Rest days return "rest".
+function dayFamily(dayType){ return (dayType||"rest").split("_")[0]; }
+
+// How a calendar day stands re: attendance. A "missed" day is the feature's
+// definition of an unattended workout: a scheduled (non-rest) day, now in the
+// past, with zero exercises logged. Today with nothing logged yet is "pending",
+// not missed — the day isn't over. Future and rest days are neither.
+function attendanceState(date, workLen){
+  const today=todayISO();
+  if(date>today) return "future";
+  const dayType = DAY_BY_WEEKDAY[new Date(date+"T12:00:00").getDay()];
+  if(dayType==="rest") return "rest";
+  if(workLen>0) return "attended";
+  return date===today ? "pending" : "missed";
+}
+
 // ---------- history (誌): month calendar → day sheet ----------
 let histMonth = null; // "YYYY-MM"
 
@@ -473,15 +512,20 @@ async function renderHistory(){
     const day = LS.get("day:"+date,null), work = LS.get("work:"+date,[])||[];
     const hasPhoto = photoDates.has(date) || !!day?.photo_path;
     const allHabits = !!day && settings.habits.length>0 && settings.habits.every(h=>day.habits_done?.[h.key]);
-    html += `<button class="cal-d ${date===today?'today':''} ${allHabits?'enso':''}"
+    const state = attendanceState(date, work.length);
+    const fam = dayFamily(DAY_BY_WEEKDAY[new Date(date+"T12:00:00").getDay()]);
+    const typeClass = state==="attended" ? `type-${fam}` : (state==="missed" ? "missed" : "");
+    html += `<button class="cal-d ${date===today?'today':''} ${allHabits?'enso':''} ${typeClass}"
       data-date="${date}" ${date>today?"disabled":""}>
       <span class="n">${n}</span>
-      <span class="dots">${work.length?'<i class="d jade"></i>':''}${hasPhoto?'<i class="d bronze"></i>':''}</span>
+      <span class="dots">${state==="attended"?`<i class="d ${fam}"></i>`:''}${hasPhoto?'<i class="d bronze"></i>':''}</span>
     </button>`;
   }
   html += `</div>`;
-  html += `<p class="lbl" style="margin-top:16px"><i class="d jade"></i> workout logged &ensp;
-    <i class="d bronze"></i> photo &ensp; <span style="color:var(--jade)">○</span> all practices</p>`;
+  html += `<p class="lbl" style="margin-top:16px;line-height:1.9">
+    <i class="d push"></i> push &ensp; <i class="d pull"></i> pull &ensp; <i class="d legs"></i> legs &ensp;
+    <i class="d bronze"></i> photo<br>
+    <span class="miss-key"></span> missed session &ensp; <span style="color:var(--jade)">○</span> all practices</p>`;
   app.innerHTML = html;
   document.getElementById("prevMonth").addEventListener("click",()=>shiftMonth(-1));
   document.getElementById("nextMonth").addEventListener("click",()=>shiftMonth(1));
@@ -567,36 +611,68 @@ async function renderAnalytics(){
   });
   for(const arr of Object.values(byEx)) arr.sort((a,b)=>a.log_date.localeCompare(b.log_date));
 
-  // rank movement (with est-1RM sparkline; one set draws a point, two+ a line)
-  html+=`<h2 class="sec">Ranks</h2>`;
-  for(const [key,label] of Object.entries(RANK_LIFTS)){
-    const r=LS.get("rank:"+key,{current_tier:0,peak_tier:0});
-    const cls = r.current_tier>=r.peak_tier?"up":(r.current_tier<r.peak_tier?"down":"flat");
-    html+=`<div class="stat"><span class="k">${label}</span>
-      <span class="v"><span class="pill ${cls}">${TIERS[r.current_tier]}</span></span></div>`;
-    html+=sparkline((byEx[key]||[]).map(l=>l.est));
-  }
-
-  // progression vs stalling: compare est-1RM over time per exercise (any bracket)
-  html+=`<h2 class="sec" style="margin-top:18px">Strength trend</h2>`;
-  if(dlSet.size) html+=`<p class="lbl" style="margin:0 0 6px">Deload weeks excluded.</p>`;
+  // per-exercise deltas — no longer shown as rows (the chart replaces them) but
+  // still feed the plain-language Summary at the bottom.
   const moves=[];
   for(const [ex,arr] of Object.entries(byEx)){
     const last=arr[arr.length-1].est;
-    // a delta needs two sessions; with one, show the baseline and no trend
     const delta=arr.length<2 ? null : last-arr[0].est;
     moves.push({ex,delta,base:last,pct:delta==null?0:delta/arr[0].est,lastDate:arr[arr.length-1].log_date});
   }
   moves.sort((a,b)=>b.pct-a.pct);
-  if(!moves.length) html+=`<div class="empty">No weighted sets logged yet.</div>`;
-  moves.forEach(m=>{
-    const nm=(PROGRAM_NAME(m.ex)||m.ex);
-    const pill = m.delta==null
-      ? `<span class="pill flat">${Math.round(m.base)} lb</span>`
-      : `<span class="pill ${m.delta>1?"up":(m.delta<-1?"down":"flat")}">${m.delta>=0?"+":""}${Math.round(m.delta)} lb</span>`;
-    html+=`<div class="stat" data-day="${m.lastDate}" style="cursor:pointer"><span class="k">${nm}</span>
-      <span class="v">${pill}</span></div>`;
+
+  // rank ladder over time: tier index per heavy session. Ranks move only on
+  // heavy 4–6 sets (est_1rm present) and need a bodyweight to judge against;
+  // points missing either are skipped.
+  const rankSeries={};
+  logs.forEach(l=>{
+    if(!RANK_LIFTS[l.exercise] || l.est_1rm==null) return;
+    if(dlSet.has(weekInfo(settings.program_start,new Date(l.log_date+"T12:00:00")).weekNum)) return;
+    const bw=LS.get("day:"+l.log_date,{})?.bodyweight_lb || settings.bodyweight_lb;
+    if(!bw) return;
+    (rankSeries[l.exercise]=rankSeries[l.exercise]||[]).push({log_date:l.log_date, tier:tierIndex(l.exercise,l.est_1rm,bw)});
   });
+  for(const arr of Object.values(rankSeries)) arr.sort((a,b)=>a.log_date.localeCompare(b.log_date));
+
+  // ----- Ranks graph: pick a lift; fixed 0–24 tier axis -----
+  html+=`<h2 class="sec">Ranks</h2>`;
+  const rankKeys=Object.keys(RANK_LIFTS);
+  const rankDefault=rankKeys.find(k=>rankSeries[k]?.length)||rankKeys[0];
+  html+=`<select class="exsel" id="ranksSel">`+
+    rankKeys.map(k=>`<option value="${k}" ${k===rankDefault?"selected":""}>${RANK_LIFTS[k]}</option>`).join("")+`</select>`;
+  html+=`<div class="chartwrap" id="ranksChart">${rankChart(rankSeries[rankDefault]||[])}</div>`;
+  html+=`<p class="lbl chartcap">tier index · 0 Iron → 24 Radiant · x = date</p>`;
+
+  // ----- Strength graph: pick any lift; est-1RM axis rescales per lift -----
+  html+=`<h2 class="sec" style="margin-top:18px">Strength trend</h2>`;
+  if(dlSet.size) html+=`<p class="lbl" style="margin:0 0 6px">Deload weeks excluded.</p>`;
+  const strKeys=Object.keys(byEx);
+  if(!strKeys.length){
+    html+=`<div class="empty">No weighted sets logged yet.</div>`;
+  } else {
+    html+=`<select class="exsel" id="strSel">`+
+      strKeys.map(k=>`<option value="${k}">${PROGRAM_NAME(k)||k}</option>`).join("")+`</select>`;
+    html+=`<div class="chartwrap" id="strChart">${strengthChart(byEx[strKeys[0]])}</div>`;
+    html+=`<p class="lbl chartcap">est 1RM (lb) · x = date</p>`;
+  }
+
+  // ----- Attendance over the window -----
+  html+=`<h2 class="sec" style="margin-top:18px">Attendance</h2>`;
+  const loggedDates=new Set(logs.map(l=>l.log_date));
+  const att=[];
+  for(let i=41;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const iso=todayISO(d);
+    att.push({date:iso, state:attendanceState(iso, loggedDates.has(iso)?1:0)}); }
+  const attended=att.filter(a=>a.state==="attended").length;
+  const missed=att.filter(a=>a.state==="missed").length;
+  const scheduled=attended+missed;
+  const rate=scheduled?Math.round(attended/scheduled*100):0;
+  const rcls=rate>=75?"up":(rate>=40?"flat":"down");
+  html+=`<div class="stat"><span class="k">Sessions attended</span>
+    <span class="v">${attended} / ${scheduled}&ensp;<span class="pill ${rcls}">${rate}%</span></span></div>`;
+  if(missed) html+=`<div class="stat"><span class="k">Missed sessions</span><span class="v pill down">${missed}×</span></div>`;
+  html+=`<div class="attend-strip">`+att.map(a=>`<i class="attend-cell ${a.state}" title="${a.date} · ${a.state}"></i>`).join("")+`</div>`;
+  html+=`<p class="lbl chartcap">last 42 days · <i class="attend-cell attended"></i> attended
+    <i class="attend-cell missed"></i> missed <i class="attend-cell rest"></i> rest</p>`;
 
   // pain flags
   const pains=logs.filter(l=>l.pain);
@@ -632,7 +708,12 @@ async function renderAnalytics(){
   html+=`Biggest thing to fix: <strong>${worst}</strong>.`;
   html+=`</p>`;
   app.innerHTML=html;
-  // strength-trend and pain rows open the underlying day
+  // dropdowns redraw only their own chart from the closure-held series
+  const rsel=document.getElementById("ranksSel");
+  rsel?.addEventListener("change",()=>{ document.getElementById("ranksChart").innerHTML=rankChart(rankSeries[rsel.value]||[]); });
+  const ssel=document.getElementById("strSel");
+  ssel?.addEventListener("change",()=>{ document.getElementById("strChart").innerHTML=strengthChart(byEx[ssel.value]||[]); });
+  // pain rows open the underlying day
   app.querySelectorAll("[data-day]").forEach(el=>el.addEventListener("click",()=>{
     if(el.dataset.day) openDaySheet(el.dataset.day);
   }));
@@ -649,22 +730,60 @@ function bestEst(sets){
   return best;
 }
 
-// inline est-1RM sparkline (jade, hairline) — one heavy set draws a point,
-// two or more draw the trend line. Only the true no-data case renders nothing.
-function sparkline(vals){
-  if(!vals.length) return "";
-  const w=340,h=44,pad=4;
-  if(vals.length===1){
-    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-      <circle cx="${(w/2).toFixed(1)}" cy="${(h/2).toFixed(1)}" r="3"
-        fill="var(--jade)" opacity=".75"/></svg>`;
+// SVG line chart with numeric axes. pts: [{t:ms, v:number}] sorted by t.
+// One point draws a dot, two+ a line. opts: {yMin,yMax,yTicks[],yFmt,color,empty}.
+function lineChart(pts, opts){
+  const {yMin,yMax,yTicks,yFmt=(v)=>Math.round(v),color="var(--jade)",empty="No data yet."}=opts;
+  if(!pts.length) return `<div class="empty" style="padding:16px 0">${empty}</div>`;
+  const W=340,H=176,mL=32,mR=8,mT=8,mB=22;
+  const x0=mL,x1=W-mR,y0=H-mB,y1=mT;
+  const tMin=pts[0].t,tMax=pts[pts.length-1].t,tSpan=(tMax-tMin)||1,vSpan=(yMax-yMin)||1;
+  const X=t=>x0+((t-tMin)/tSpan)*(x1-x0);
+  const Y=v=>y0-((v-yMin)/vSpan)*(y0-y1);
+  let grid="",ylab="";
+  yTicks.forEach(v=>{ const y=Y(v).toFixed(1);
+    grid+=`<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" class="grid"/>`;
+    ylab+=`<text x="${x0-5}" y="${y}" class="ytick">${yFmt(v)}</text>`; });
+  const idxs=[...new Set(pts.length<=2?pts.map((_,i)=>i):[0,Math.floor((pts.length-1)/2),pts.length-1])];
+  const last=pts.length-1;
+  let xlab="";
+  idxs.forEach(i=>{ const p=pts[i],x=X(p.t).toFixed(1),d=new Date(p.t);
+    // keep the end labels inside the viewBox (middle-anchored ones overflow the edges)
+    const anchor=i===0?"start":(i===last?"end":"middle");
+    xlab+=`<text x="${x}" y="${H-6}" class="xtick" style="text-anchor:${anchor}">${d.getMonth()+1}/${d.getDate()}</text>`; });
+  const axes=`<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" class="axis"/>
+    <line x1="${x0}" y1="${y1}" x2="${x0}" y2="${y0}" class="axis"/>`;
+  let series;
+  if(pts.length===1){
+    series=`<circle cx="${X(pts[0].t).toFixed(1)}" cy="${Y(pts[0].v).toFixed(1)}" r="3.5" fill="${color}"/>`;
+  } else {
+    const line=pts.map(p=>`${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ");
+    series=`<polyline points="${line}" fill="none" stroke="${color}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>`+
+      pts.map(p=>`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.6" fill="${color}"/>`).join("");
   }
-  const min=Math.min(...vals),max=Math.max(...vals),span=(max-min)||1;
-  const step=(w-2*pad)/(vals.length-1);
-  const pts=vals.map((v,i)=>`${(pad+i*step).toFixed(1)},${(h-pad-((v-min)/span)*(h-2*pad)).toFixed(1)}`).join(" ");
-  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-    <polyline points="${pts}" fill="none" stroke="var(--jade)" stroke-width="2"
-      stroke-linecap="round" stroke-linejoin="round" opacity=".75"/></svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${grid}${axes}${series}${ylab}${xlab}</svg>`;
+}
+// round a 0..max range up to tidy, evenly-spaced tick marks
+function niceScale(max){
+  const span=max||1, step0=span/4, mag=Math.pow(10,Math.floor(Math.log10(step0))), norm=step0/mag;
+  const step=(norm<=1?1:norm<=2?2:norm<=5?5:10)*mag;
+  const top=Math.ceil(max/step)*step||step, ticks=[];
+  for(let v=0;v<=top+1e-9;v+=step) ticks.push(Math.round(v));
+  return {top,ticks};
+}
+// ranks: fixed 0–24 tier axis, shared across all rank lifts
+function rankChart(series){
+  const pts=series.map(s=>({t:new Date(s.log_date+"T12:00:00").getTime(),v:s.tier}));
+  return lineChart(pts,{yMin:0,yMax:24,yTicks:[0,6,12,18,24],yFmt:v=>v,color:"var(--cinnabar)",
+    empty:"Log a heavy 4–6 rep set (with bodyweight) to chart this rank."});
+}
+// strength: est-1RM in lb, y rescaled to the selected lift
+function strengthChart(series){
+  const pts=series.map(s=>({t:new Date(s.log_date+"T12:00:00").getTime(),v:s.est}));
+  const {top,ticks}=niceScale(pts.length?Math.max(...pts.map(p=>p.v)):1);
+  return lineChart(pts,{yMin:0,yMax:top,yTicks:ticks,yFmt:v=>Math.round(v),color:"var(--jade)",
+    empty:"No sets logged for this lift yet."});
 }
 
 function PROGRAM_NAME(key){
