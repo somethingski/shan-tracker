@@ -916,7 +916,7 @@ function renderSettings(){
   document.getElementById("export").addEventListener("click",exportData);
   document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("importFile").click());
   document.getElementById("importFile").addEventListener("change",e=>{ if(e.target.files[0]) importData(e.target.files[0]); });
-  document.getElementById("signout").addEventListener("click",async()=>{ if(sb)await sb.auth.signOut(); location.reload(); });
+  document.getElementById("signout").addEventListener("click",async()=>{ if(sb)await sb.auth.signOut(); await clearLocalData(); location.reload(); });
 }
 
 // ---------- program editor (編): edit exercises, order, and day structure ----------
@@ -1071,27 +1071,55 @@ async function importData(file){
 }
 
 // ---------- auth gate ----------
-async function renderAuth(){
+async function renderAuth(mode="signin"){
+  const signup = mode==="signup";
+  const inputStyle="width:100%;padding:12px;margin:6px 0;border:1px solid rgba(138,137,124,.4);border-radius:4px;font-family:inherit;background:var(--paper-hi)";
   app.innerHTML=mast("")+`
     <div style="max-width:22rem;margin:8vh auto 0;text-align:center">
       <div class="display" style="font-size:56px;color:var(--jade)">山</div>
       <h2 class="sec">Shan</h2>
-      <p class="lbl">A training journal.</p>
+      <p class="lbl">${signup?"Create your account.":"A training journal."}</p>
       ${brush()}
-      <input id="email" placeholder="email" style="width:100%;padding:12px;margin:6px 0;border:1px solid rgba(138,137,124,.4);border-radius:4px;font-family:inherit;background:var(--paper-hi)">
-      <input id="pw" type="password" placeholder="password" style="width:100%;padding:12px;margin:6px 0;border:1px solid rgba(138,137,124,.4);border-radius:4px;font-family:inherit;background:var(--paper-hi)">
-      <button class="act" id="signin" style="width:100%;margin-top:8px">Enter</button>
+      <input id="email" placeholder="email" autocomplete="email" style="${inputStyle}">
+      <input id="pw" type="password" placeholder="password" autocomplete="${signup?"new-password":"current-password"}" style="${inputStyle}">
+      <button class="act" id="submit" style="width:100%;margin-top:8px">${signup?"Create account":"Enter"}</button>
       <p class="lbl" id="authmsg" style="margin-top:10px"></p>
-      <p class="lbl" style="margin-top:20px"><a href="#" id="offline" style="color:var(--jade)">Use offline on this device</a></p>
+      <p class="lbl" style="margin-top:16px"><a href="#" id="toggleMode" style="color:var(--jade)">${signup?"Have an account? Sign in":"New here? Create an account"}</a></p>
+      <p class="lbl" style="margin-top:14px"><a href="#" id="offline" style="color:var(--jade)">Use offline on this device</a></p>
     </div>`;
   document.querySelector("nav.tabs")?.remove();
-  document.getElementById("signin").addEventListener("click",async()=>{
-    const email=document.getElementById("email").value, pw=document.getElementById("pw").value;
-    const msg=document.getElementById("authmsg"); msg.textContent="…";
-    const {error}=await sb.auth.signInWithPassword({email,password:pw});
-    if(error){msg.textContent=error.message;} else location.reload();
+  const msg=()=>document.getElementById("authmsg");
+  const creds=()=>({email:document.getElementById("email").value.trim(), pw:document.getElementById("pw").value});
+
+  document.getElementById("submit").addEventListener("click",async()=>{
+    const {email,pw}=creds();
+    if(!email){ msg().textContent="Enter your email."; return; }
+    if(signup && pw.length<6){ msg().textContent="Password must be at least 6 characters."; return; }
+    msg().textContent="…";
+    if(signup){
+      const {data,error}=await sb.auth.signUp({email,password:pw});
+      if(error){ msg().textContent=error.message; return; }
+      // if email confirmation is on, no session comes back — ask them to confirm
+      if(data.session) location.reload();
+      else { renderAuth("signin"); document.getElementById("authmsg").textContent="Account created — check your email to confirm, then sign in."; }
+    } else {
+      const {error}=await sb.auth.signInWithPassword({email,password:pw});
+      if(error){ msg().textContent=error.message; } else location.reload();
+    }
   });
+  document.getElementById("toggleMode").addEventListener("click",e=>{ e.preventDefault(); renderAuth(signup?"signin":"signup"); });
   document.getElementById("offline").addEventListener("click",e=>{e.preventDefault();startApp(true);});
+}
+
+// Wipe this device's local caches. Local keys ("shan:*") and the photo
+// IndexedDB are not namespaced by account, so they must be cleared when signing
+// out or switching users — otherwise a shared browser would show the previous
+// account's cached logs and photos.
+async function clearLocalData(){
+  for(const k of Object.keys(localStorage)) if(k.startsWith("shan:")) localStorage.removeItem(k);
+  try{ photoDB._db?.close(); photoDB._db=null;
+    await new Promise(res=>{ const q=indexedDB.deleteDatabase("shan-photos"); q.onsuccess=q.onerror=q.onblocked=()=>res(); });
+  }catch(e){/* best effort */}
 }
 
 // ---------- boot ----------
@@ -1102,6 +1130,9 @@ async function startApp(offline){
 (async function boot(){
   try{ await migratePhotos(); }catch(e){ console.warn("photo migration skipped", e); }
   try{ await initSupabase(); }catch(e){}
+  // identity guard: if a different account is signing in, wipe the previous
+  // account's local cache before we hydrate this one (shared-device safety).
+  if(sb&&user && LS.get("uid",null)!==user.id){ await clearLocalData(); LS.set("uid", user.id); }
   // hydrate settings from supabase if available
   if(sb&&user){ try{ const {data}=await sb.from("settings").select("*").eq("user_id",user.id).maybeSingle();
     if(data){settings=data;LS.set("settings",settings);} else { await syncSettings(); } }catch(e){} }

@@ -3,9 +3,11 @@
 -- Run once in Supabase → SQL Editor. Creates tables, storage
 -- bucket for physique photos, and row-level security.
 --
--- SINGLE-USER MODEL: this project is yours alone. We use
--- Supabase Auth with one account (you). RLS ties every row to
--- auth.uid() so only your logged-in session can read/write.
+-- MULTI-USER, PER-ACCOUNT PRIVATE: each person signs up with
+-- their own Supabase Auth account. RLS ties every row to
+-- auth.uid(), so accounts are fully isolated — a user can only
+-- read/write their own rows. (To keep it private, disable public
+-- sign-ups in the Supabase Auth settings; see the README.)
 -- ============================================================
 
 -- ---------- settings (one row: program config + editable habits) ----------

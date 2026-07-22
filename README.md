@@ -36,10 +36,38 @@ You'll need a Supabase project. Put your keys in `app/config.js`:
 Then run `sql/schema.sql` once against the database. Deploying is just GitHub
 Pages through Actions — the steps are in `DEPLOY_RUNBOOK.md`.
 
+## Multiple users
+
+The same deployment can hold any number of people, each with a completely private
+account. Supabase row-level security scopes every row — logs, ranks, settings,
+photos — to the signed-in user, so no one can see anyone else's data.
+
+**For a new user:**
+
+1. Open the app's URL.
+2. On the sign-in screen, tap **New here? Create an account**, enter an email and
+   a password (6+ characters), and tap **Create account**.
+3. If email confirmation is turned on in the Supabase project, you'll get a
+   confirmation email — click the link, then come back and sign in. If it's off,
+   you're signed in immediately.
+4. From then on, just sign in with that email and password. Your program,
+   history, and ranks are yours alone.
+
+"Use offline on this device" is a separate, account-less mode: it keeps data in
+the browser on that one device and never syncs. Sign in if you want a real account
+you can reach from anywhere. On a shared device, sign out when you're done —
+signing out (and switching accounts) wipes this device's cached data so the next
+person can't see yours.
+
+**For the owner (controlling who can register).** Sign-up is open by default —
+anyone with the link can create an account. To close it off: Supabase Dashboard →
+**Authentication → Sign In / Providers → Email**, turn off **Allow new users to
+sign up**. After that, only accounts you create yourself under **Authentication →
+Users** can sign in. That's the kill-switch if the public URL starts attracting
+strangers.
+
 ## Known rough edges
 
 The dumbbell shoulder press rank is more of an estimate than the others; there
 isn't much public strength data for it, so it's flagged as approximate in the app
-and I left it there. It's also strictly single-user — the login exists so the
-data is private, not because anyone else is meant to sign in. And there are no
-tests yet.
+and I left it there. And there are no tests yet.
